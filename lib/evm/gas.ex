@@ -93,7 +93,6 @@ defmodule EVM.Gas do
       iex> EVM.Gas.instr_cost(:exp, nil, %EVM.MachineState{stack: [0, 0]}, nil)
       10
 
-      # TODO: Verify
       iex> EVM.Gas.instr_cost(:exp, nil, %EVM.MachineState{stack: [0, 10241]}, nil)
       30
 
@@ -129,8 +128,15 @@ defmodule EVM.Gas do
   def instr_cost(:exp, _state, machine_state, _exec_env) do
     case Enum.at(machine_state.stack, 1) do
       0 -> @g_exp
-      s -> @g_exp + @g_expbyte * ( 1 + MathHelper.floor( MathHelper.log(s, 256) ) )
+      s -> @g_exp + @g_expbyte * (1 + MathHelper.floor( MathHelper.log(s, 256) ) )
     end
+  end
+
+  def instr_cost(:mstore, _state, machine_state, _exec_env) do
+    # value = Enum.at(machine_state.stack, 1)
+    #   |> :binary.encode_unsigned
+    # @g_memory * (1 + MathHelper.floor((byte_size(value))))
+    @g_memory
   end
 
   def instr_cost(instr, _state, _machine_state, _exec_env) when instr in [:calldatacopy, :codecopy], do: 0

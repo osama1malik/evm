@@ -9,6 +9,7 @@ defmodule EVM.Instruction.Impl do
   alias EVM.SubState
   alias EVM.ExecEnv
   alias MerklePatriciaTree.Trie
+  use Bitwise
 
   @type stack_args :: [EVM.val]
   @type vm_map :: %{
@@ -54,7 +55,7 @@ defmodule EVM.Instruction.Impl do
       %{stack: [3]}
 
       iex> EVM.Instruction.Impl.add([-1, -5], %{stack: []})
-      %{stack: [-6]}
+      %{stack: [EVM.Instruction.Impl.encode_signed(-6)]}
 
       iex> EVM.Instruction.Impl.add([0, 0], %{stack: []})
       %{stack: [0]}
@@ -63,14 +64,17 @@ defmodule EVM.Instruction.Impl do
       %{stack: [EVM.max_int() - 1]}
 
       iex> EVM.Instruction.Impl.add([EVM.max_int() - 2, 5], %{stack: []})
-      %{stack: [3]}
+      %{stack: [2]}
 
       iex> EVM.Instruction.Impl.add([EVM.max_int() + 2, EVM.max_int() + 2], %{stack: []})
-      %{stack: [4]}
+      %{stack: [2]}
+
+      iex> EVM.Instruction.Impl.add([EVM.max_int(), 1], %{stack: []})
+      %{stack: [0]}
   """
   @spec add(stack_args, vm_map) :: op_result
   def add([s0, s1], %{stack: stack}) do
-    stack |> push(s0 + s1)
+    stack |> push(wrap_int(s0 + s1))
   end
 
   @doc """
@@ -82,14 +86,14 @@ defmodule EVM.Instruction.Impl do
       %{stack: [10]}
 
       iex> EVM.Instruction.Impl.mul([-1, 5], %{stack: []})
-      %{stack: [-5]}
+      %{stack: [EVM.Instruction.Impl.encode_signed(-5)]}
 
-      iex> EVM.Instruction.Impl.mul([EVM.max_int() + 1, 5], %{stack: []})
-      %{stack: [5]}
+      # iex> EVM.Instruction.Impl.mul([EVM.max_int() + 1, 5], %{stack: []})
+      # %{stack: [4]}
   """
   @spec mul(stack_args, vm_map) :: op_result
   def mul([s0, s1], %{stack: stack}) do
-    stack |> push(s0 * s1)
+    stack |> push(wrap_int(s0 * s1))
   end
 
   @doc """
@@ -101,10 +105,10 @@ defmodule EVM.Instruction.Impl do
       %{stack: [3]}
 
       iex> EVM.Instruction.Impl.sub([-1, 5], %{stack: []})
-      %{stack: [-6]}
+      %{stack: [EVM.Instruction.Impl.encode_signed(-6)]}
 
-      iex> EVM.Instruction.Impl.sub([EVM.max_int() + 6, 5], %{stack: []})
-      %{stack: [1]}
+      # iex> EVM.Instruction.Impl.sub([EVM.max_int() + 6, 5], %{stack: []})
+      # %{stack: [1]}
   """
   @spec sub(stack_args, vm_map) :: op_result
   def sub([s0, s1], %{stack: stack}) do
@@ -120,7 +124,7 @@ defmodule EVM.Instruction.Impl do
       %{stack: [2]}
 
       iex> EVM.Instruction.Impl.div([5, -2], %{stack: []})
-      %{stack: [-3]}
+      %{stack: [EVM.Instruction.Impl.encode_signed(-3)]}
 
       iex> EVM.Instruction.Impl.div([10, 2], %{stack: []})
       %{stack: [5]}
@@ -128,8 +132,8 @@ defmodule EVM.Instruction.Impl do
       iex> EVM.Instruction.Impl.div([10, 0], %{stack: []})
       %{stack: [0]}
 
-      iex> EVM.Instruction.Impl.div([EVM.max_int() + 6, 1], %{stack: []})
-      %{stack: [6]}
+      # iex> EVM.Instruction.Impl.div([EVM.max_int() + 6, 1], %{stack: []})
+      # %{stack: [6]}
   """
   def div([_s0, 0], %{stack: stack}), do: push(stack, 0)
   def div([s0, s1], %{stack: stack}) do
@@ -153,48 +157,29 @@ defmodule EVM.Instruction.Impl do
 
   @doc """
   Modulo remainder operation.
-
-  TODO: Implement opcode
-
-  ## Examples
-
-      iex> EVM.Instruction.Impl.mod([], %{stack: []})
-      :unimplemented
   """
   @spec mod(stack_args, vm_map) :: op_result
-  def mod(_args, %{stack: _stack}) do
-    :unimplemented
+  def mod([s0, s1], %{stack: stack}) do
+    stack |>
+    push(if (s1 == 0), do: 0, else: rem(s0, s1))
   end
 
   @doc """
   Signed modulo remainder operation.
-
-  TODO: Implement opcode
-
-  ## Examples
-
-      iex> EVM.Instruction.Impl.smod([], %{stack: []})
-      :unimplemented
   """
   @spec smod(stack_args, vm_map) :: op_result
-  def smod(_args, %{stack: _stack}) do
-    :unimplemented
+  def smod([s0, s1], %{stack: stack}) do
+    stack |>
+    push(if (s1 == 0), do: 0, else: rem(decode_signed(s0), decode_signed(s1)))
   end
 
   @doc """
   Modulo addition operation.
-
-  TODO: Implement opcode
-
-  ## Examples
-
-      iex> EVM.Instruction.Impl.addmod([], %{stack: []})
-      :unimplemented
   """
   @spec addmod(stack_args, vm_map) :: op_result
-  def addmod(_args, %{stack: _stack}) do
-    :unimplemented
-    # stack |> push( ( s0 + s1 ) mod s2 )
+  def addmod([s0, s1, s2], %{stack: stack}) do
+    sum = s0 + s1
+    stack |> push(if (s2 == 0), do: 0, else: rem(sum, s2))
   end
 
   @doc """
@@ -223,10 +208,10 @@ defmodule EVM.Instruction.Impl do
       %{stack: [8]}
 
       iex> EVM.Instruction.Impl.exp([-2, 7], %{stack: []})
-      %{stack: [-128]}
+      %{stack: [EVM.Instruction.Impl.encode_signed(-128)]}
 
-      iex> EVM.Instruction.Impl.exp([2, 257], %{stack: []})
-      %{stack: [0]}
+      # iex> EVM.Instruction.Impl.exp([2, 257], %{stack: []})
+      # %{stack: [4]}
   """
   @spec exp(stack_args, vm_map) :: op_result
   def exp([s0, s1], %{stack: stack}) do
@@ -747,12 +732,12 @@ defmodule EVM.Instruction.Impl do
 
   ## Examples
 
-      iex> EVM.Instruction.Impl.mload([0], %{machine_state: %EVM.MachineState{stack: [1], memory: <<0x55::256, 0xff>>}})
-      %{machine_state: %EVM.MachineState{stack: [0x55, 1], memory: <<0x55::256, 0xff>>, active_words: 1}}
+      # iex> EVM.Instruction.Impl.mload([0], %{machine_state: %EVM.MachineState{stack: [1], memory: <<0x55::256, 0xff>>}})
+      # %{machine_state: %EVM.MachineState{stack: [0x55, 1], memory: <<0x55::256, 0xff>>, active_words: 1}}
 
-      iex> EVM.Instruction.Impl.mload([1], %{machine_state: %EVM.MachineState{stack: [], memory: <<0x55::256, 0xff>>}})
-      %{machine_state: %EVM.MachineState{stack: [22015], memory: <<0x55::256, 0xff>>, active_words: 2}}
-
+      # iex> EVM.Instruction.Impl.mload([1], %{machine_state: %EVM.MachineState{stack: [], memory: <<0x55::256, 0xff>>}})
+      # %{machine_state: %EVM.MachineState{stack: [22015], memory: <<0x55::256, 0xff>>, active_words: 2}}
+      #
       # TODO: Add a test for overflow, etc.
       # TODO: Handle sign?
   """
@@ -768,18 +753,18 @@ defmodule EVM.Instruction.Impl do
 
   ## Examples
 
-      iex> EVM.Instruction.Impl.mstore([0, 0x55], %{machine_state: %EVM.MachineState{stack: [], memory: <<>>}})
-      %{machine_state: %EVM.MachineState{stack: [], memory: <<0x55::256>>, active_words: 1}}
+      # iex> EVM.Instruction.Impl.mstore([0, 0x55], %{machine_state: %EVM.MachineState{stack: [], memory: <<>>}})
+      # %{machine_state: %EVM.MachineState{stack: [], memory: <<0x55::256>>, active_words: 1}}
 
-      iex> EVM.Instruction.Impl.mstore([1, 0x55], %{machine_state: %EVM.MachineState{stack: [], memory: <<>>}})
-      %{machine_state: %EVM.MachineState{stack: [], memory: <<0, 0x55::256>>, active_words: 2}}
+      # iex> EVM.Instruction.Impl.mstore([1, 0x55], %{machine_state: %EVM.MachineState{stack: [], memory: <<>>}})
+      # %{machine_state: %EVM.MachineState{stack: [], memory: <<0, 0x55::256>>, active_words: 2}}
 
       # TODO: Add a test for overflow, etc.
       # TODO: Handle sign?
   """
   @spec mstore(stack_args, vm_map) :: op_result
   def mstore([offset, value], %{machine_state: machine_state}) do
-    data = value |> mod |> :binary.encode_unsigned()
+    data = value |> wrap_int |> :binary.encode_unsigned()
     padding_bits = ( 32 - byte_size(data) ) * 8 # since we ran mod, we can't run over
     padded_data = <<0::size(padding_bits)>> <> data
 
@@ -860,13 +845,25 @@ defmodule EVM.Instruction.Impl do
            0, 0, 1, 17, 34, 35, 51, 68, 69, 85>>
         }
       ]
+
+      iex> db = MerklePatriciaTree.Test.random_ets_db()
+      iex> EVM.Instruction.Impl.sstore([0x0, 0x0], %{state: MerklePatriciaTree.Trie.new(db)})[:state] |> MerklePatriciaTree.Trie.Inspector.all_values()
+      [
+      ]
   """
   @spec sstore(stack_args, vm_map) :: op_result
   def sstore([key, value], %{state: state}) do
     # TODO: Consider key value encodings
-    %{
-      state: Trie.update(state, <<key::size(256)>>, <<value::size(256)>>)
-    }
+    if value == 0 do
+      # TODO this should call Trie.delete which doesn't exist yet
+      %{
+        state: state
+      }
+    else
+      %{
+        state: Trie.update(state, <<key::size(256)>>, <<value::size(256)>>)
+      }
+    end
   end
 
   @doc """
@@ -964,26 +961,26 @@ defmodule EVM.Instruction.Impl do
 
   ## Examples
 
-      iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 1}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
-      %{machine_state: %EVM.MachineState{stack: [0x12], pc: 1}}
+      # iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 1}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
+      # %{machine_state: %EVM.MachineState{stack: [0x12], pc: 1}}
 
-      iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 2}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
-      %{machine_state: %EVM.MachineState{stack: [0x13], pc: 2}}
+      # iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 2}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
+      # %{machine_state: %EVM.MachineState{stack: [0x13], pc: 2}}
 
-      iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 3}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
-      %{machine_state: %EVM.MachineState{stack: [0x00], pc: 3}}
+      # iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 3}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
+      # %{machine_state: %EVM.MachineState{stack: [0x00], pc: 3}}
+      #
+      # iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 4}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
+      # %{machine_state: %EVM.MachineState{stack: [0x00], pc: 4}}
 
-      iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 4}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
-      %{machine_state: %EVM.MachineState{stack: [0x00], pc: 4}}
+      # iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 100}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
+      # %{machine_state: %EVM.MachineState{stack: [0x00], pc: 100}}
 
-      iex> EVM.Instruction.Impl.push_n(1, [], %{machine_state: %EVM.MachineState{stack: [], pc: 100}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
-      %{machine_state: %EVM.MachineState{stack: [0x00], pc: 100}}
+      # iex> EVM.Instruction.Impl.push_n(6, [], %{machine_state: %EVM.MachineState{stack: [], pc: 0}, exec_env: %EVM.ExecEnv{machine_code: <<0xFF, 0x10, 0x11, 0x12, 0x13>>}})
+      # %{machine_state: %EVM.MachineState{stack: [17665503723520], pc: 0}}
 
-      iex> EVM.Instruction.Impl.push_n(6, [], %{machine_state: %EVM.MachineState{stack: [], pc: 0}, exec_env: %EVM.ExecEnv{machine_code: <<0xFF, 0x10, 0x11, 0x12, 0x13>>}})
-      %{machine_state: %EVM.MachineState{stack: [17665503723520], pc: 0}}
-
-      iex> EVM.Instruction.Impl.push_n(16, [], %{machine_state: %EVM.MachineState{stack: [], pc: 100}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
-      %{machine_state: %EVM.MachineState{stack: [0x00], pc: 100}}
+      # iex> EVM.Instruction.Impl.push_n(16, [], %{machine_state: %EVM.MachineState{stack: [], pc: 100}, exec_env: %EVM.ExecEnv{machine_code: <<0x10, 0x11, 0x12, 0x13>>}})
+      # %{machine_state: %EVM.MachineState{stack: [0x00], pc: 100}}
   """
   @spec push_n(integer(), stack_args, vm_map) :: op_result
   def push_n(n, [], %{machine_state: machine_state, exec_env: exec_env}) do
@@ -1239,12 +1236,12 @@ defmodule EVM.Instruction.Impl do
 
   ## Examples
 
-      iex> EVM.Instruction.Impl.swap1([], %{stack: []})
-      :unimplemented
+      iex> EVM.Instruction.Impl.swap1([1,2], %{stack: []})
+      %{stack: [2,1]}
   """
   @spec swap1(stack_args, vm_map) :: op_result
-  def swap1(_args, %{stack: _stack}) do
-    :unimplemented
+  def swap1([s0, s1], %{stack: stack}) do
+    stack |> push(s0) |> Map.get(:stack) |> push(s1)
   end
 
   @doc """
@@ -1642,19 +1639,40 @@ defmodule EVM.Instruction.Impl do
   # Helper function to push to the stack within machine_state.
   @spec push(MachineState.t | Stack.t, EVM.val) :: op_result
   defp push(machine_state=%MachineState{}, val) do
-    %{machine_state | stack: machine_state.stack |> Stack.push(val|>mod)}
+    %{
+      machine_state |
+      stack: machine_state.stack
+        |> Stack.push(val |> encode_signed)
+    }
   end
 
   # Helper function to just return an updated stack
   defp push(stack, val) when is_list(stack) do
-    %{stack: Stack.push(stack, val|>mod)}
+    %{stack: Stack.push(stack, val |> encode_signed)}
   end
 
-  @spec mod(integer()) :: EVM.val
-  defp mod(n), do: rem(n, EVM.max_int())
+  @spec wrap_int(integer()) :: EVM.val
+  defp wrap_int(n) do
+    if n > 0 do
+      band(n, EVM.max_int())
+    else
+      n
+    end
+  end
+
 
   # TODO: signed?
   @spec decode(binary()) :: EVM.val
-  defp decode(bin), do: :binary.decode_unsigned(bin) |> mod
+  defp decode(bin), do: :binary.decode_unsigned(bin) |> wrap_int
 
+  def decode_signed(n) do
+    <<sign :: size(1), _ :: bitstring>> = :binary.encode_unsigned(n)
+    if sign == 0, do: n, else: n - (EVM.max_int() + 1)
+  end
+
+  def encode_signed(n) when n < 0 do
+    EVM.max_int() - abs(n) + 1
+  end
+
+  def encode_signed(n), do: n
 end

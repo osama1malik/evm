@@ -10,11 +10,13 @@ defmodule EVM do
   @type hash :: <<_::256>>
   @type timestamp :: integer()
 
-  @max_int round(:math.pow(2, 256))
-
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  @max_int round(:math.pow(2, 256)) - 1
   @doc """
   Returns maximum allowed integer size.
   """
-  def max_int(), do: @max_int
+  def max_int() do
+    @max_int
+  end
 
 end
